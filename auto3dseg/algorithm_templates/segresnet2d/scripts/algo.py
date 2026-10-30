@@ -346,12 +346,15 @@ class Segresnet2dAlgo(BundleAlgo):
                         yaml_contents.update({k: parser[k]})
 
             normalize_mode = parser.get("normalize_mode", None)
+            aliases = {"ct": "range", "mri": "meanstd"}
             if normalize_mode_is_derived and isinstance(normalize_mode, list) and normalize_mode:
                 normalize_mode = normalize_mode[0]
-            if isinstance(normalize_mode, str):
+            if isinstance(normalize_mode, list):
+                parser["normalize_mode"] = [aliases.get(mode, mode) for mode in normalize_mode]
+                yaml_contents["normalize_mode"] = copy.deepcopy(parser["normalize_mode"])
+            elif isinstance(normalize_mode, str):
                 normalize_mode_is_derived = True
                 # Record modes in the same order as the image concatenation.
-                aliases = {"ct": "range", "mri": "meanstd"}
                 modes = [normalize_mode, *parser.get("extra_modalities", {}).values()]
                 modes = [aliases.get(mode, mode) for mode in modes]
                 parser["normalize_mode"] = modes[0] if all(mode == modes[0] for mode in modes) else modes
