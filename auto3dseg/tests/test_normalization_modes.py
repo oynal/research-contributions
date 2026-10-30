@@ -110,6 +110,45 @@ EXPORT_CASES = (
 class TestNormalizationModes(unittest.TestCase):
     @parameterized.expand(
         [
+            (algo, extra, count, modes)
+            for algo in ALGORITHMS
+            for extra, count, modes in (
+                ({}, 1, ["meanstd"]),
+                ({"image2": "none", "image3": "ct"}, 3, ["meanstd", "none", "range"]),
+            )
+        ]
+    )
+    def test_changed_inputs_require_matching_explicit_modes(self, algo_name, extra, count, modes):
+        """Reject a stale explicit list at export, before an invalid bundle reaches preprocessing."""
+        algo_class = getattr(importlib.import_module(f"{algo_name}.scripts.algo"), f"{algo_name.capitalize()}Algo")
+        algo = algo_class(template_path=str(ALGO_TEMPLATES))
+        algo.name = algo_name
+        algo.fill_records = {
+            "hyper_parameters.yaml": {
+                "normalize_mode": ["meanstd", "none"],
+                "extra_modalities": {"image2": "none"},
+                "input_channels": 2,
+            }
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaisesRegex(ValueError, "normalize_mode.*input"):
+                algo.export_to_disk(
+                    temp_dir, "bundle", fill_with_datastats=False, extra_modalities=extra, input_channels=count
+                )
+            algo.export_to_disk(
+                temp_dir,
+                "bundle",
+                fill_with_datastats=False,
+                extra_modalities=extra,
+                input_channels=count,
+                normalize_mode=modes,
+            )
+            config = ConfigParser.load_config_file(str(Path(temp_dir) / "bundle/configs/hyper_parameters.yaml"))
+        self.assertEqual(config["normalize_mode"], modes)
+        self.assertEqual(algo.fill_records["hyper_parameters.yaml"]["normalize_mode"], modes)
+
+    @parameterized.expand(
+        [
             (algo, previous, updated, old_channels, new_channels)
             for algo in ALGORITHMS
             for previous, updated, old_channels, new_channels in (

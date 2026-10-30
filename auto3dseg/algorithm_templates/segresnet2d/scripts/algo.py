@@ -350,6 +350,9 @@ class Segresnet2dAlgo(BundleAlgo):
             if normalize_mode_is_derived and isinstance(normalize_mode, list) and normalize_mode:
                 normalize_mode = normalize_mode[0]
             if isinstance(normalize_mode, list):
+                expected_modes = 1 + len(parser.get("extra_modalities", {}))
+                if len(normalize_mode) != expected_modes:
+                    raise ValueError(f"normalize_mode must contain {expected_modes} modes, one per input image key")
                 parser["normalize_mode"] = [aliases.get(mode, mode) for mode in normalize_mode]
                 yaml_contents["normalize_mode"] = copy.deepcopy(parser["normalize_mode"])
             elif isinstance(normalize_mode, str):
