@@ -33,6 +33,7 @@ else:
 
 class Segresnet2dAlgo(BundleAlgo):
     def state_dict(self) -> dict:
+        """Serialize bundle state together with normalization-mode provenance."""
         state = super().state_dict()
         state["_normalize_mode_is_derived"] = getattr(self, "_normalize_mode_is_derived", False)
         return state
@@ -309,6 +310,8 @@ class Segresnet2dAlgo(BundleAlgo):
 
             parser = ConfigParser(globals=False)
             parser.read_config(file_path)
+            previous_extra_modalities = yaml_contents.get("extra_modalities", {})
+            adjust_input_channels = "extra_modalities" in kwargs and "input_channels" not in kwargs
             normalize_mode_is_derived = getattr(self, "_normalize_mode_is_derived", False)
             if "normalize_mode" in kwargs:
                 normalize_mode_is_derived = isinstance(kwargs["normalize_mode"], str)
@@ -320,9 +323,17 @@ class Segresnet2dAlgo(BundleAlgo):
                 yaml_contents[k] = copy.deepcopy(parser[k])
 
             for k, v in kwargs.items():  # override new params not in fill_records
-                if parser.get(k, None) is not None:
+                if k == "extra_modalities" or parser.get(k, None) is not None:
                     parser[k] = copy.deepcopy(v)
-                    yaml_contents.update({k: parser[k]})
+                    if k.startswith("normalize_mode#"):
+                        normalize_mode_is_derived = False
+                        yaml_contents["normalize_mode"] = copy.deepcopy(parser["normalize_mode"])
+                    else:
+                        yaml_contents.update({k: parser[k]})
+
+            if adjust_input_channels:
+                parser["input_channels"] += len(parser.get("extra_modalities", {})) - len(previous_extra_modalities)
+                yaml_contents["input_channels"] = parser["input_channels"]
 
             normalize_mode = parser.get("normalize_mode", None)
             if normalize_mode_is_derived and isinstance(normalize_mode, list) and normalize_mode:

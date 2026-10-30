@@ -71,6 +71,10 @@ EXPORT_CASES = (
         {"extra_modalities": {"image2": "mri"}},
         ["meanstd", "none"],
     ),
+    ("mri", None, {}, ["meanstd", "none"], {"extra_modalities": {"image2": "none"}}),
+    ("mri", None, {}, ["meanstd", "none"], {"extra_modalities": {"image2": "none"}, "input_channels": 3}),
+    ("mri", None, {}, "meanstd", None, {"extra_modalities": {"image2": "none"}}, ["meanstd", "none"]),
+    ("mri", {"image2": "ct"}, {}, ["meanstd", "range"], None, {"normalize_mode#1": "none"}, ["meanstd", "none"]),
     (
         "mri",
         {"image2": "none"},
@@ -105,9 +109,10 @@ class TestNormalizationModes(unittest.TestCase):
                 "modality": modality,
                 "dataroot": temp_dir,
                 "datalist": str(root / "datalist.json"),
-                "extra_modalities": extra_modalities,
                 **overrides,
             }
+            if extra_modalities is not None:
+                data_source["extra_modalities"] = extra_modalities
             stats = {
                 "stats_summary": {
                     "n_cases": 2,
@@ -137,7 +142,15 @@ class TestNormalizationModes(unittest.TestCase):
             config = ConfigParser.load_config_file(str(root / "bundle" / "configs" / "hyper_parameters.yaml"))
             self.assertEqual(config["normalize_mode"], expected)
             self.assertEqual(algo.fill_records["hyper_parameters.yaml"]["normalize_mode"], expected)
-            self.assertEqual(list(config["extra_modalities"]), list(extra_modalities))
+            expected_extras = (export_kwargs or {}).get("extra_modalities", extra_modalities or {})
+            self.assertEqual(list(config.get("extra_modalities", {})), list(expected_extras))
+            expected_channels = (export_kwargs or {}).get("input_channels", 1 + len(expected_extras))
+            self.assertEqual(config["input_channels"], expected_channels)
+            if extra_modalities is None and "extra_modalities" in (export_kwargs or {}):
+                algo.fill_template_config(str(stats_file), str(root / "bundle"), **export_kwargs)
+                refilled = ConfigParser.load_config_file(str(root / "bundle" / "configs" / "hyper_parameters.yaml"))
+                self.assertEqual(refilled["input_channels"], expected_channels)
+                self.assertEqual(refilled["normalize_mode"], expected)
             # Re-export after restoring serialized Algo state, as cached bundle workflows do.
             state = copy.deepcopy(algo.state_dict())
             algo = algo_class()
@@ -149,12 +162,22 @@ class TestNormalizationModes(unittest.TestCase):
                 algo.export_to_disk(temp_dir, "updated", fill_with_datastats=False, **refill_kwargs)
                 updated = ConfigParser.load_config_file(str(root / "updated" / "configs" / "hyper_parameters.yaml"))
                 self.assertEqual(updated["normalize_mode"], refill_expected)
+                self.assertEqual(updated["input_channels"], 1 + len(updated.get("extra_modalities", {})))
+                self.assertEqual(algo.fill_records["hyper_parameters.yaml"]["normalize_mode"], refill_expected)
+                if "normalize_mode#1" in refill_kwargs:
+                    algo.export_to_disk(
+                        temp_dir, "explicit", fill_with_datastats=False, normalize_mode=["none", "meanstd"]
+                    )
+                    explicit = ConfigParser.load_config_file(
+                        str(root / "explicit" / "configs" / "hyper_parameters.yaml")
+                    )
+                    self.assertEqual(explicit["normalize_mode"], ["none", "meanstd"])
             # A generated config must also be consumable by the training/inference pipeline.
             builder_class = importlib.import_module(f"{algo_name}.scripts.segmenter").DataTransformBuilder
             builder = builder_class(
                 roi_size=[4, 4, 4],
                 normalize_mode=config["normalize_mode"],
-                extra_modalities=config["extra_modalities"],
+                extra_modalities=config.get("extra_modalities", {}),
                 normalize_params={"intensity_bounds": config["intensity_bounds"]},
             )
             self.assertTrue(builder.get_normalize_transforms())
