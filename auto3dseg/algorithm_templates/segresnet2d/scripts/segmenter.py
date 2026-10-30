@@ -166,6 +166,13 @@ class DataTransformBuilder:
         rank: int = 0,
         **kwargs,
     ) -> None:
+        """Configure preprocessing for the primary image and optional extra inputs.
+
+        A string ``normalize_mode`` selects the primary image's mode, with extra
+        modes taken from ``extra_modalities``. A list selects one mode per input
+        key, ordered by the primary image followed by the extra keys. Each mode
+        applies to every channel of its input image.
+        """
         self.roi_size, self.image_key, self.label_key = roi_size, image_key, label_key
 
         self.resample, self.resample_resolution = resample, resample_resolution
@@ -256,6 +263,14 @@ class DataTransformBuilder:
         return ts
 
     def get_normalize_transforms(self):
+        """Return normalization transforms followed by optional input concatenation.
+
+        Explicit lists take precedence over the modes in ``extra_modalities``.
+        Custom normalization transforms replace the default normalization stage.
+
+        Raises:
+            ValueError: If a list does not match the input key count or a mode is unsupported.
+        """
         ts = self.get_custom("normalize_transforms")
         if len(ts) > 0:
             return ts
