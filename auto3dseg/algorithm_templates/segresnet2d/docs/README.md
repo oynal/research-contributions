@@ -55,6 +55,12 @@ An explicit list overrides the normalization modes in `extra_modalities` and mus
 have one entry per input key. Legacy string configs continue to use the string
 for the primary image and the values in `extra_modalities` for additional images.
 
+Set `input_channels` to the actual total when extra images have multiple channels.
+When export/refill overrides change the keys in `extra_modalities`, also provide
+`input_channels`; counting image keys cannot determine the number of channels.
+An indexed override such as `normalize_mode#1` requires a list-valued mode. For a
+shared string mode, supply a complete `normalize_mode` list instead.
+
 # References
 
 [1] Myronenko, A., 2018, September. 3D MRI brain tumor segmentation using autoencoder regularization. In International MICCAI Brainlesion Workshop (pp. 311-320). Springer, Cham.

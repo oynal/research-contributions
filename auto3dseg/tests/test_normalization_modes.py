@@ -43,14 +43,22 @@ EXPORT_CASES = (
     ("mri", {"image2": "none"}, {}, ["meanstd", "pet"], {"extra_modalities": {"image2": "pet"}}),
     ("mri", {"image2": "none"}, {}, ["none", "range"], {"normalize_mode": ["none", "range"]}),
     ("mri", {"image2": "none"}, {}, ["meanstd", "none"], None, {"extra_modalities": {"image2": "mri"}}, "meanstd"),
-    ("mri", {"image2": "none"}, {}, ["meanstd", "none"], None, {"extra_modalities": {}}, "meanstd"),
     (
         "mri",
         {"image2": "none"},
         {},
         ["meanstd", "none"],
         None,
-        {"extra_modalities": {"image2": "none", "image3": "ct"}},
+        {"extra_modalities": {}, "input_channels": 1},
+        "meanstd",
+    ),
+    (
+        "mri",
+        {"image2": "none"},
+        {},
+        ["meanstd", "none"],
+        None,
+        {"extra_modalities": {"image2": "none", "image3": "ct"}, "input_channels": 3},
         ["meanstd", "none", "range"],
     ),
     (
@@ -71,9 +79,17 @@ EXPORT_CASES = (
         {"extra_modalities": {"image2": "mri"}},
         ["meanstd", "none"],
     ),
-    ("mri", None, {}, ["meanstd", "none"], {"extra_modalities": {"image2": "none"}}),
+    ("mri", None, {}, ["meanstd", "none"], {"extra_modalities": {"image2": "none"}, "input_channels": 2}),
     ("mri", None, {}, ["meanstd", "none"], {"extra_modalities": {"image2": "none"}, "input_channels": 3}),
-    ("mri", None, {}, "meanstd", None, {"extra_modalities": {"image2": "none"}}, ["meanstd", "none"]),
+    (
+        "mri",
+        None,
+        {},
+        "meanstd",
+        None,
+        {"extra_modalities": {"image2": "none"}, "input_channels": 2},
+        ["meanstd", "none"],
+    ),
     ("mri", {"image2": "ct"}, {}, ["meanstd", "range"], None, {"normalize_mode#1": "none"}, ["meanstd", "none"]),
     (
         "mri",
@@ -88,6 +104,71 @@ EXPORT_CASES = (
 
 
 class TestNormalizationModes(unittest.TestCase):
+    @parameterized.expand(
+        [
+            (algo, previous, updated, old_channels, new_channels)
+            for algo in ALGORITHMS
+            for previous, updated, old_channels, new_channels in (
+                ({}, {"image2": "none"}, 1, 2),
+                ({"image2": "none"}, {}, 3, 1),
+                ({"image2": "none"}, {"image_a": "none", "image_b": "none"}, 3, 3),
+                ({"image2": "none"}, {"image_a": "none"}, 3, 2),
+            )
+        ]
+    )
+    def test_changed_input_keys_require_explicit_channel_count(
+        self, algo_name, previous, updated, old_channels, new_channels
+    ):
+        """Extra images may have multiple channels, so changed keys need an explicit total."""
+        algo_class = getattr(importlib.import_module(f"{algo_name}.scripts.algo"), f"{algo_name.capitalize()}Algo")
+        algo = algo_class(template_path=str(ALGO_TEMPLATES))
+        algo.name = algo_name
+        algo.fill_records = {
+            "hyper_parameters.yaml": {
+                "normalize_mode": "meanstd",
+                "extra_modalities": previous,
+                "input_channels": old_channels,
+            }
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaisesRegex(ValueError, "input_channels"):
+                algo.export_to_disk(temp_dir, "bundle", fill_with_datastats=False, extra_modalities=updated)
+            algo.export_to_disk(
+                temp_dir,
+                "bundle",
+                fill_with_datastats=False,
+                extra_modalities=updated,
+                input_channels=new_channels,
+                normalize_mode="meanstd",
+            )
+            config = ConfigParser.load_config_file(str(Path(temp_dir) / "bundle/configs/hyper_parameters.yaml"))
+        self.assertEqual(config["input_channels"], new_channels)
+        builder_class = importlib.import_module(f"{algo_name}.scripts.segmenter").DataTransformBuilder
+        builder = builder_class(roi_size=[2, 2, 2], normalize_mode=config["normalize_mode"], extra_modalities=updated)
+        inputs = {key: MetaTensor(torch.ones(1, 2, 2)) for key in ["image", *updated]}
+        result = Compose(builder.get_normalize_transforms())(inputs)
+        self.assertEqual(result["image"].shape[0], new_channels)
+
+    @parameterized.expand([(algo,) for algo in ALGORITHMS])
+    def test_shared_mode_rejects_indexed_override(self, algo_name):
+        """A shared scalar has no per-input indices; callers must supply a complete list."""
+        algo_class = getattr(importlib.import_module(f"{algo_name}.scripts.algo"), f"{algo_name.capitalize()}Algo")
+        algo = algo_class(template_path=str(ALGO_TEMPLATES))
+        algo.name = algo_name
+        algo.fill_records = {
+            "hyper_parameters.yaml": {
+                "normalize_mode": "meanstd",
+                "extra_modalities": {"image2": "mri"},
+                "input_channels": 2,
+            }
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaisesRegex(ValueError, "normalize_mode.*list"):
+                algo.export_to_disk(temp_dir, "bundle", fill_with_datastats=False, **{"normalize_mode#1": "none"})
+            algo.export_to_disk(temp_dir, "bundle", fill_with_datastats=False, normalize_mode=["meanstd", "none"])
+            config = ConfigParser.load_config_file(str(Path(temp_dir) / "bundle/configs/hyper_parameters.yaml"))
+        self.assertEqual(config["normalize_mode"], ["meanstd", "none"])
+
     @parameterized.expand([(algo, *case) for algo in ALGORITHMS for case in EXPORT_CASES])
     def test_export_normalization_modes(
         self,

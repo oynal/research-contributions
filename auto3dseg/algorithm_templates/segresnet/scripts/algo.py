@@ -286,7 +286,15 @@ class SegresnetAlgo(BundleAlgo):
             parser = ConfigParser(globals=False)
             parser.read_config(file_path)
             previous_extra_modalities = yaml_contents.get("extra_modalities", {})
-            adjust_input_channels = "extra_modalities" in kwargs and "input_channels" not in kwargs
+            if (
+                "extra_modalities" in kwargs
+                and set(kwargs["extra_modalities"]) != set(previous_extra_modalities)
+                and "input_channels" not in kwargs
+            ):
+                raise ValueError(
+                    "input_channels must be provided when an extra_modalities override changes input keys; "
+                    "extra images may contain multiple channels."
+                )
             normalize_mode_is_derived = getattr(self, "_normalize_mode_is_derived", False)
             if "normalize_mode" in kwargs:
                 normalize_mode_is_derived = isinstance(kwargs["normalize_mode"], str)
@@ -297,6 +305,12 @@ class SegresnetAlgo(BundleAlgo):
                     parser[k] = copy.deepcopy(v)  # some values are dicts
                 yaml_contents[k] = copy.deepcopy(parser[k])
 
+            if any(k.startswith("normalize_mode#") for k in kwargs) and isinstance(parser.get("normalize_mode"), str):
+                raise ValueError(
+                    "Indexed normalize_mode overrides require a list; provide a complete normalize_mode list "
+                    "to override a shared scalar mode."
+                )
+
             for k, v in kwargs.items():  # override new params not in fill_records
                 if k == "extra_modalities" or parser.get(k, None) is not None:
                     parser[k] = copy.deepcopy(v)
@@ -305,10 +319,6 @@ class SegresnetAlgo(BundleAlgo):
                         yaml_contents["normalize_mode"] = copy.deepcopy(parser["normalize_mode"])
                     else:
                         yaml_contents.update({k: parser[k]})
-
-            if adjust_input_channels:
-                parser["input_channels"] += len(parser.get("extra_modalities", {})) - len(previous_extra_modalities)
-                yaml_contents["input_channels"] = parser["input_channels"]
 
             normalize_mode = parser.get("normalize_mode", None)
             if normalize_mode_is_derived and isinstance(normalize_mode, list) and normalize_mode:
