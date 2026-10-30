@@ -162,7 +162,7 @@ class DataTransformBuilder:
         label_key: str = "label",
         resample: bool = False,
         resample_resolution: Optional[list] = None,
-        normalize_mode: str = "meanstd",
+        normalize_mode: Union[str, List[str]] = "meanstd",
         normalize_params: Optional[dict] = None,
         crop_mode: str = "ratio",
         crop_params: Optional[dict] = None,
@@ -283,8 +283,14 @@ class DataTransformBuilder:
             ts.append(RandIdentity())  # indicate to stop caching after this point
             ts.append(CastToTyped(keys=self.image_key, dtype=torch.float, allow_missing_keys=True))
 
-        modalities = {self.image_key: self.normalize_mode}
-        modalities.update(self.extra_modalities)
+        if isinstance(self.normalize_mode, str):
+            modalities = {self.image_key: self.normalize_mode}
+            modalities.update(self.extra_modalities)
+        else:
+            keys = [self.image_key, *self.extra_modalities]
+            if len(self.normalize_mode) != len(keys):
+                raise ValueError(f"normalize_mode must contain {len(keys)} modes, one per input image key")
+            modalities = dict(zip(keys, self.normalize_mode))
 
         for key, normalize_mode in modalities.items():
             if normalize_mode == "none":

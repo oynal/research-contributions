@@ -36,6 +36,25 @@ Execute inference:
 python scripts/infer.py run --config_file=configs/hyper_parameters.yaml
 ```
 
+## Normalization for multiple inputs
+
+Generated configs keep `normalize_mode` as a string when the primary image and all
+`extra_modalities` use the same normalization. Otherwise, it is a list ordered by
+the primary image key followed by the keys in `extra_modalities` (in insertion
+order). Each entry applies to all channels of that input image. Modality aliases
+`ct` and `mri` are saved as `range` and `meanstd`, respectively.
+
+For example, an MRI image with an additional label image that must not be normalized produces:
+
+```yaml
+normalize_mode: [meanstd, none]
+extra_modalities: {image2: none}
+```
+
+An explicit list overrides the normalization modes in `extra_modalities` and must
+have one entry per input key. Legacy string configs continue to use the string
+for the primary image and the values in `extra_modalities` for additional images.
+
 # References
 
 [1] Myronenko, A., 2018, September. 3D MRI brain tumor segmentation using autoencoder regularization. In International MICCAI Brainlesion Workshop (pp. 311-320). Springer, Cham.

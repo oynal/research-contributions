@@ -278,6 +278,7 @@ class SegresnetAlgo(BundleAlgo):
 
             parser = ConfigParser(globals=False)
             parser.read_config(file_path)
+            refresh_normalize_modes = "extra_modalities" in kwargs and "normalize_mode" not in kwargs
             for k, v in yaml_contents.items():
                 if k in kwargs:
                     parser[k] = kwargs.pop(k)
@@ -289,6 +290,17 @@ class SegresnetAlgo(BundleAlgo):
                 if parser.get(k, None) is not None:
                     parser[k] = copy.deepcopy(v)
                     yaml_contents.update({k: parser[k]})
+
+            normalize_mode = parser.get("normalize_mode", None)
+            if refresh_normalize_modes and isinstance(normalize_mode, list) and normalize_mode:
+                normalize_mode = normalize_mode[0]
+            if isinstance(normalize_mode, str):
+                # Record modes in the same order as the image concatenation.
+                aliases = {"ct": "range", "mri": "meanstd"}
+                modes = [normalize_mode, *parser.get("extra_modalities", {}).values()]
+                modes = [aliases.get(mode, mode) for mode in modes]
+                parser["normalize_mode"] = modes[0] if all(mode == modes[0] for mode in modes) else modes
+                yaml_contents["normalize_mode"] = copy.deepcopy(parser["normalize_mode"])
 
             ConfigParser.export_config_file(
                 parser.get(), file_path, fmt="yaml", default_flow_style=None, sort_keys=False
