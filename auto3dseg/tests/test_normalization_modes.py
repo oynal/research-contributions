@@ -9,6 +9,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 import importlib
 import sys
 import tempfile
@@ -60,6 +61,24 @@ EXPORT_CASES = (
         None,
         {"extra_modalities": {"image2": "mri"}, "normalize_mode": ["none", "range"]},
         ["none", "range"],
+    ),
+    (
+        "mri",
+        {"image2": "mri"},
+        {"normalize_mode": ["meanstd", "none"]},
+        ["meanstd", "none"],
+        None,
+        {"extra_modalities": {"image2": "mri"}},
+        ["meanstd", "none"],
+    ),
+    (
+        "mri",
+        {"image2": "none"},
+        {},
+        ["meanstd", "none"],
+        {"normalize_mode": ["meanstd", "none"]},
+        {"extra_modalities": {"image2": "mri"}},
+        ["meanstd", "none"],
     ),
 )
 
@@ -119,6 +138,10 @@ class TestNormalizationModes(unittest.TestCase):
             self.assertEqual(config["normalize_mode"], expected)
             self.assertEqual(algo.fill_records["hyper_parameters.yaml"]["normalize_mode"], expected)
             self.assertEqual(list(config["extra_modalities"]), list(extra_modalities))
+            # Re-export after restoring serialized Algo state, as cached bundle workflows do.
+            state = copy.deepcopy(algo.state_dict())
+            algo = algo_class()
+            algo.load_state_dict(state)
             algo.export_to_disk(temp_dir, "restored", fill_with_datastats=False)
             restored = ConfigParser.load_config_file(str(root / "restored" / "configs" / "hyper_parameters.yaml"))
             self.assertEqual(restored["normalize_mode"], expected)

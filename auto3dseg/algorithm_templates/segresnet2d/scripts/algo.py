@@ -32,6 +32,11 @@ else:
 
 
 class Segresnet2dAlgo(BundleAlgo):
+    def state_dict(self) -> dict:
+        state = super().state_dict()
+        state["_normalize_mode_is_derived"] = getattr(self, "_normalize_mode_is_derived", False)
+        return state
+
     def pre_check_skip_algo(self, skip_bundlegen: bool = False, skip_info: str = ""):
         """
         Precheck if the algorithm needs to be skipped.
@@ -294,6 +299,7 @@ class Segresnet2dAlgo(BundleAlgo):
                 config.update({"mlflow_experiment_name": self.mlflow_experiment_name})
 
             config.update(input_config)  # override if any additional inputs provided
+            self._normalize_mode_is_derived = isinstance(config["normalize_mode"], str)
             fill_records = {"hyper_parameters.yaml": config}
         else:
             fill_records = self.fill_records
@@ -303,7 +309,9 @@ class Segresnet2dAlgo(BundleAlgo):
 
             parser = ConfigParser(globals=False)
             parser.read_config(file_path)
-            refresh_normalize_modes = "extra_modalities" in kwargs and "normalize_mode" not in kwargs
+            normalize_mode_is_derived = getattr(self, "_normalize_mode_is_derived", False)
+            if "normalize_mode" in kwargs:
+                normalize_mode_is_derived = isinstance(kwargs["normalize_mode"], str)
             for k, v in yaml_contents.items():
                 if k in kwargs:
                     parser[k] = kwargs.pop(k)
@@ -317,15 +325,17 @@ class Segresnet2dAlgo(BundleAlgo):
                     yaml_contents.update({k: parser[k]})
 
             normalize_mode = parser.get("normalize_mode", None)
-            if refresh_normalize_modes and isinstance(normalize_mode, list) and normalize_mode:
+            if normalize_mode_is_derived and isinstance(normalize_mode, list) and normalize_mode:
                 normalize_mode = normalize_mode[0]
             if isinstance(normalize_mode, str):
+                normalize_mode_is_derived = True
                 # Record modes in the same order as the image concatenation.
                 aliases = {"ct": "range", "mri": "meanstd"}
                 modes = [normalize_mode, *parser.get("extra_modalities", {}).values()]
                 modes = [aliases.get(mode, mode) for mode in modes]
                 parser["normalize_mode"] = modes[0] if all(mode == modes[0] for mode in modes) else modes
                 yaml_contents["normalize_mode"] = copy.deepcopy(parser["normalize_mode"])
+            self._normalize_mode_is_derived = normalize_mode_is_derived
 
             ConfigParser.export_config_file(
                 parser.get(), file_path, fmt="yaml", default_flow_style=None, sort_keys=False
